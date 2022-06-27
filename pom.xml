@@ -6,7 +6,7 @@
 
   <groupId>com.github.vincentrussell</groupId>
   <artifactId>java-dns-server</artifactId>
-  <version>1.1-SNAPSHOT</version>
+  <version>1.0</version>
   <name>java-dns-server</name>
   <description>java-dns-server is a UDP DNS server written in java where you can input entries that should be
     returned.</description>
@@ -25,6 +25,23 @@
     </snapshotRepository>
   </distributionManagement>
 
+  <developers>
+    <developer>
+      <name>Vincent Russell</name>
+      <email>vincent.russell@gmail.com</email>
+      <organization>n/a</organization>
+      <organizationUrl>https://github.com/vincentrussell/</organizationUrl>
+    </developer>
+  </developers>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jdkVersion>1.8</jdkVersion>
@@ -36,6 +53,7 @@
     <maven.compiler.source>${jdkVersion}</maven.compiler.source>
     <maven.compiler.target>${jdkVersion}</maven.compiler.target>
   </properties>
+
 
   <dependencyManagement>
     <dependencies>
