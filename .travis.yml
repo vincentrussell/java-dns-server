@@ -1,0 +1,11 @@
+language: java
+
+jdk:
+  - openjdk8
+
+install: mvn clean verify
+
+notifications:
+  email:
+    recipients:
+      - vincent.russell@gmail.com
