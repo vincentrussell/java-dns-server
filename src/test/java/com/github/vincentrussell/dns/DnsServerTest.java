@@ -38,7 +38,7 @@ public class DnsServerTest {
     public void realResponse() throws IOException {
         int port = SocketUtils.findAvailableUdpPort();
         try (DnsServer server = new DnsServer().addExternalDnsServer("8.8.8.8").setPort(port).startServer()) {
-            Record[] records = getRecords(port, new Lookup("www.google.com"));
+            Record[] records = getRecords(port, new Lookup("www.google.com"), false);
             assertNotNull(records);
             assertEquals(Name.fromString("www.google.com."), server.getCachedDnsEntries().keySet().iterator().next());
         }
@@ -48,7 +48,7 @@ public class DnsServerTest {
     public void realResponseWithExternalServer() throws IOException {
         int port = SocketUtils.findAvailableUdpPort();
         try (DnsServer server = new DnsServer().setPort(port).addExternalDnsServer("8.8.8.8").startServer()) {
-            Record[] records = getRecords(port, new Lookup("www.google.com"));
+            Record[] records = getRecords(port, new Lookup("www.google.com"), false);
             assertNotNull(records);
         }
     }
@@ -57,7 +57,7 @@ public class DnsServerTest {
     public void notFound() throws IOException {
         int port = SocketUtils.findAvailableUdpPort();
         try (DnsServer server = new DnsServer().setPort(port).startServer()) {
-            Record[] records = getRecords(port, new Lookup("www.google.xxx"));
+            Record[] records = getRecords(port, new Lookup("www.google.xxx"), false);
             assertNull(records);
         }
     }
@@ -68,10 +68,35 @@ public class DnsServerTest {
         try (DnsServer server = new DnsServer().setPort(port).startServer()) {
             server.addManualDnsEntry("www.google.xxx", "192.168.12.1");
             server.addManualDnsEntry("www.google.xyz", "192.168.12.99");
-            Record[] records = getRecords(port, new Lookup("www.google.xxx"));
+            Record[] records = getRecords(port, new Lookup("www.google.xxx"), false);
             assertEquals("192.168.12.1", ((ARecord) records[0]).getAddress().getHostAddress());
 
-            records = getRecords(port, new Lookup("www.google.xyz"));
+            records = getRecords(port, new Lookup("www.google.xyz"), false);
+            assertEquals("192.168.12.99", ((ARecord) records[0]).getAddress().getHostAddress());
+
+            assertEquals(new TreeSet<>(Sets.newHashSet(Name.fromString("www.google.xyz."),
+                            Name.fromString("www.google.xxx."))),
+                    new TreeSet<>(server.getManualDnsEntries().keySet()));
+        }
+    }
+
+
+    @Test
+    public void addManualEntryUseTcpAndUdp() throws IOException {
+        int port = SocketUtils.findAvailableUdpPort();
+        try (DnsServer server = new DnsServer().setPort(port).startServer()) {
+            server.addManualDnsEntry("www.google.xxx", "192.168.12.1");
+            server.addManualDnsEntry("www.google.xyz", "192.168.12.99");
+            Record[] records = getRecords(port, new Lookup("www.google.xxx"), true);
+            assertEquals("192.168.12.1", ((ARecord) records[0]).getAddress().getHostAddress());
+
+            records = getRecords(port, new Lookup("www.google.xxx"), false);
+            assertEquals("192.168.12.1", ((ARecord) records[0]).getAddress().getHostAddress());
+
+            records = getRecords(port, new Lookup("www.google.xyz"), true);
+            assertEquals("192.168.12.99", ((ARecord) records[0]).getAddress().getHostAddress());
+
+            records = getRecords(port, new Lookup("www.google.xyz"), false);
             assertEquals("192.168.12.99", ((ARecord) records[0]).getAddress().getHostAddress());
 
             assertEquals(new TreeSet<>(Sets.newHashSet(Name.fromString("www.google.xyz."),
@@ -103,7 +128,7 @@ public class DnsServerTest {
                     @Override
                     public Record[] call() throws Exception {
                         try {
-                            Record[] records = getRecords(port, new Lookup(hostname));
+                            Record[] records = getRecords(port, new Lookup(hostname), false);
                             assertEquals(ip, ((ARecord) records[0]).getAddress().getHostAddress());
                             return records;
                         } catch (UnknownHostException e) {
@@ -137,9 +162,10 @@ public class DnsServerTest {
         }
     }
 
-    private Record[] getRecords(int port, Lookup lookup) throws UnknownHostException, TextParseException {
+    private Record[] getRecords(int port, Lookup lookup, boolean tcp) throws UnknownHostException, TextParseException {
         SimpleResolver resolver = new SimpleResolver(new InetSocketAddress(InetAddress.getLocalHost(), port));
         resolver.setTimeout(Duration.ofSeconds(1));
+        resolver.setTCP(tcp);
 
         lookup.setResolver(resolver);
         lookup.setCache(null);

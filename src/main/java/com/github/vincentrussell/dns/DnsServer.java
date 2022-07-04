@@ -21,11 +21,16 @@ import org.xbill.DNS.TextParseException;
 import org.xbill.DNS.Type;
 
 import java.io.Closeable;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -49,9 +54,11 @@ public class DnsServer implements Closeable {
     public static final int DEFAULT_DNS_SERVER_PORT = 53;
     private long cacheExpirationDuration = 1;
     private TimeUnit cacheExpirationUnit = TimeUnit.HOURS;
-    private int requestThreadPoolSize = 50;
-    private Thread thread = null;
+    private int udpServerRequestThreadPoolSize = 50;
+    private Thread udpThread = null;
     private ExecutorService executorService = null;
+
+    private InetAddress bindAddress = null;
 
     private DnsServerListener dnsServerListener = new DefaultDnsServerListener();
     private volatile boolean running = false;
@@ -63,6 +70,8 @@ public class DnsServer implements Closeable {
     private long defaultResponseTTl = 86400;
     private int remoteDnsRetryCount = 5;
     private long remoteDnsTimeoutInSeconds = 3;
+    private Thread tcpThread;
+    private int tcpServerMaxLengthIncomingConnectionsQueue = 128;
 
     public DnsServer() {
     }
@@ -73,8 +82,15 @@ public class DnsServer implements Closeable {
         return this;
     }
 
-    public DnsServer setRequestThreadPoolSize(final int requestThreadPoolSize) {
-        this.requestThreadPoolSize = requestThreadPoolSize;
+    public DnsServer setUdpServerRequestThreadPoolSize(final int udpServerRequestThreadPoolSize) {
+        this.udpServerRequestThreadPoolSize = udpServerRequestThreadPoolSize;
+        return this;
+    }
+
+    public DnsServer setTcpServerMaxLengthIncomingConnectionsQueue(
+            final int tcpServerMaxLengthIncomingConnectionsQueue) {
+        this.tcpServerMaxLengthIncomingConnectionsQueue =
+                tcpServerMaxLengthIncomingConnectionsQueue;
         return this;
     }
 
@@ -103,6 +119,14 @@ public class DnsServer implements Closeable {
         return this;
     }
 
+    public DnsServer setBindAddress(final String hostname) throws UnknownHostException {
+        return setBindAddress(InetAddress.getByName(hostname));
+    }
+    public DnsServer setBindAddress(final InetAddress bindAddress) {
+        this.bindAddress = bindAddress;
+        return this;
+    }
+
     public DnsServer startServer() {
         dnsCache = CacheBuilder.newBuilder()
                 .expireAfterAccess(cacheExpirationDuration, cacheExpirationUnit)
@@ -117,10 +141,10 @@ public class DnsServer implements Closeable {
                 );
 
         running = true;
-        executorService = Executors.newFixedThreadPool(requestThreadPoolSize);
-        thread = new Thread(() -> {
+        executorService = Executors.newFixedThreadPool(udpServerRequestThreadPoolSize);
+        udpThread = new Thread(() -> {
                     try {
-                        listenOnSocket();
+                        listenOnUdpSocket();
                     } catch (Throwable ex) {
                         stop();
                         throw new RuntimeException(ex);
@@ -128,7 +152,19 @@ public class DnsServer implements Closeable {
                         dnsServerListener.listenThreadExited();
                     }
             });
-        thread.start();
+        udpThread.start();
+
+        tcpThread = new Thread(() -> {
+            try {
+                listenOnTcpSocket();
+            } catch (Throwable ex) {
+                stop();
+                throw new RuntimeException(ex);
+            } finally {
+                dnsServerListener.listenThreadExited();
+            }
+        });
+        tcpThread.start();
         return this;
     }
     public Map<Name, Set<Record>> getManualDnsEntries() {
@@ -157,14 +193,17 @@ public class DnsServer implements Closeable {
 
     private void stop() {
         running = false;
-        thread.interrupt();
-        thread = null;
+        udpThread.interrupt();
+        udpThread = null;
+        tcpThread.interrupt();
+        tcpThread = null;
         executorService.shutdownNow();
         executorService = null;
     }
 
-    private void listenOnSocket() throws IOException {
-        DatagramSocket socket = new DatagramSocket(port);
+    private void listenOnUdpSocket() throws IOException {
+        DatagramSocket socket = new DatagramSocket(port, bindAddress != null
+                ? bindAddress : InetAddress.getLocalHost());
         while (running) {
             final byte[] bytes = new byte[UDP_SIZE];
             // Read the request
@@ -179,10 +218,53 @@ public class DnsServer implements Closeable {
             });
         }
     }
+
+    private void listenOnTcpSocket() throws IOException {
+        ServerSocket sock = new ServerSocket(port,
+                tcpServerMaxLengthIncomingConnectionsQueue, bindAddress != null
+                ? bindAddress : InetAddress.getLocalHost());
+        while (running) {
+            final Socket s = sock.accept();
+            executorService.submit(() -> {
+                try {
+                    processTcpRequest(s);
+                } catch (IOException e) {
+                    LOGGER.error(e.getMessage(), e);
+                }
+            });
+        }
+    }
+
+    private void processTcpRequest(final Socket socket) throws IOException {
+        try (InputStream is = socket.getInputStream();
+             DataInputStream dataIn = new DataInputStream(is);
+             DataOutputStream dataOut = new DataOutputStream(socket.getOutputStream())) {
+            final int inLength = dataIn.readUnsignedShort();
+            final byte[] bytes = new byte[inLength];
+            dataIn.readFully(bytes);
+
+            final Message request = new Message(bytes);
+            final Message response = buildResponse(request);
+            final byte[] resp = response.toWire();
+
+            dataOut.writeShort(resp.length);
+            dataOut.write(resp);
+        }
+    }
+
     private void processDatagramPacket(final DatagramSocket socket, final byte[] bytes,
                                        final DatagramPacket datagramPacket) throws IOException {
         // Build the response
         Message request = new Message(bytes);
+        Message response = buildResponse(request);
+
+        byte[] resp = response.toWire();
+        DatagramPacket outdp = new DatagramPacket(resp, resp.length,
+                datagramPacket.getAddress(), datagramPacket.getPort());
+        socket.send(outdp);
+    }
+
+    private Message buildResponse(final Message request) {
         Message response = new Message(request.getHeader().getID());
         response.addRecord(request.getQuestion(), Section.QUESTION);
 
@@ -205,11 +287,7 @@ public class DnsServer implements Closeable {
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         }
-
-        byte[] resp = response.toWire();
-        DatagramPacket outdp = new DatagramPacket(resp, resp.length,
-                datagramPacket.getAddress(), datagramPacket.getPort());
-        socket.send(outdp);
+        return response;
     }
 
     @Override
