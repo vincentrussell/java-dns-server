@@ -4,13 +4,13 @@ java-dns-server is a dns server that can be used for testing purposes that is wr
 
 ## Maven
 
-Add a dependency to `com.github.vincentrussell:java-dns-server`. 
+Add a dependency to `com.github.vincentrussell:java-dns-server:1.1`. 
 
 ```
 <dependency>
    <groupId>com.github.vincentrussell</groupId>
    <artifactId>java-dns-server</artifactId>
-   <version>1.0</version>
+   <version>1.1</version>
 </dependency>
 ```
 
