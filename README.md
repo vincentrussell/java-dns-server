@@ -30,6 +30,12 @@ Add a dependency to `com.github.vincentrussell:java-dns-server`.
 
 # Change Log
 
+## [1.1](https://github.com/vincentrussell/java-dns-server/tree/java-dns-server-1.1) (2022-07-04)
+
+**Improvements:**
+
+- adding TCP support to DNS Server
+
 ## [1.0](https://github.com/vincentrussell/java-dns-server/tree/java-dns-server-1.0) (2022-06-26)
 
 **Improvements:**
