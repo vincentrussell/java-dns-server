@@ -67,7 +67,7 @@ public class DnsServer implements Closeable {
     private final List<Resolver> externalDnsResolvers = new ArrayList<>();
     private LoadingCache<Name, Record[]> dnsCache;
     private Map<Name, Set<Record>> manualDnsEntries = new ConcurrentHashMap<>();
-    private long defaultResponseTTl = 86400;
+    private long defaultResponseTTlSeconds = 86400;
     private int remoteDnsRetryCount = 5;
     private long remoteDnsTimeoutInSeconds = 3;
     private Thread tcpThread;
@@ -94,8 +94,8 @@ public class DnsServer implements Closeable {
         return this;
     }
 
-    public DnsServer setDefaultResponseTTl(final long defaultResponseTTl) {
-        this.defaultResponseTTl = defaultResponseTTl;
+    public DnsServer setDefaultResponseTTlSeconds(final long defaultResponseTTlSeconds) {
+        this.defaultResponseTTlSeconds = defaultResponseTTlSeconds;
         return this;
     }
 
@@ -153,6 +153,7 @@ public class DnsServer implements Closeable {
                     }
             });
         udpThread.start();
+        LOGGER.info("starting udp server on port {}", port);
 
         tcpThread = new Thread(() -> {
             try {
@@ -165,6 +166,7 @@ public class DnsServer implements Closeable {
             }
         });
         tcpThread.start();
+        LOGGER.info("starting tcp server on port {}", port);
         return this;
     }
     public Map<Name, Set<Record>> getManualDnsEntries() {
@@ -244,6 +246,7 @@ public class DnsServer implements Closeable {
             dataIn.readFully(bytes);
 
             final Message request = new Message(bytes);
+            LOGGER.info("received tcp request {}", request);
             final Message response = buildResponse(request);
             final byte[] resp = response.toWire();
 
@@ -256,6 +259,7 @@ public class DnsServer implements Closeable {
                                        final DatagramPacket datagramPacket) throws IOException {
         // Build the response
         Message request = new Message(bytes);
+        LOGGER.info("received udp request {}", request);
         Message response = buildResponse(request);
 
         byte[] resp = response.toWire();
@@ -273,17 +277,19 @@ public class DnsServer implements Closeable {
 
             if (manualRecords != null && !manualRecords.isEmpty()) {
                 for (Record record : manualRecords) {
+                    LOGGER.info("found manually-entered record {}", record);
                     response.addRecord(record, Section.ANSWER);
                 }
             } else {
                 Record[] records = dnsCache.get(request.getQuestion().getName());
                 for (Record record : records) {
+                    LOGGER.info("found dns-cached record {}", record);
                     response.addRecord(record, Section.ANSWER);
                 }
             }
         } catch (CacheLoader.InvalidCacheLoadException e) {
-            LOGGER.info("{} not found in cache or manual records error message{}",
-                    request.getQuestion().getName(),  e.getMessage());
+            LOGGER.error(request.getQuestion().getName()
+                    + " not found in cache or manual records error message " + e.getMessage(), e);
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         }
@@ -307,15 +313,17 @@ public class DnsServer implements Closeable {
 
     public DnsServer addExternalDnsServer(
             final InetSocketAddress inetSocketAddress) throws UnknownHostException {
+        LOGGER.info("add external dns server", inetSocketAddress);
         externalDnsResolvers.add(new SimpleResolver(inetSocketAddress));
         return this;
     }
 
     public DnsServer addManualDnsEntry(final Name name,
                                        final InetAddress inetAddress) throws IOException {
+        LOGGER.info("add manual dns entry name={}, ip={}", name, inetAddress);
         manualDnsEntries.computeIfAbsent(name, name1 ->
-                new HashSet<>()).add(Record.fromString(name, Type.A, DClass.IN, defaultResponseTTl,
-                inetAddress.getHostAddress(), name));
+                new HashSet<>()).add(Record.fromString(name, Type.A, DClass.IN,
+                defaultResponseTTlSeconds, inetAddress.getHostAddress(), name));
         return this;
     }
 
@@ -330,10 +338,12 @@ public class DnsServer implements Closeable {
         return removeManualDnsEntry(toName(hostname));
     }
     public void clearManualDnsEntries() {
+        LOGGER.info("clear all manual dns entries");
         manualDnsEntries.clear();
     }
 
     public Set<Record> removeManualDnsEntry(final Name name) {
+        LOGGER.info("remove manual d entry name={}", name);
         return manualDnsEntries.remove(name);
     }
 }
