@@ -35,10 +35,10 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -322,7 +322,7 @@ public class DnsServer implements Closeable {
                                        final InetAddress inetAddress) throws IOException {
         LOGGER.info("add manual dns entry name={}, ip={}", name, inetAddress);
         manualDnsEntries.computeIfAbsent(name, name1 ->
-                new HashSet<>()).add(Record.fromString(name, Type.A, DClass.IN,
+                new TreeSet<>()).add(Record.fromString(name, Type.A, DClass.IN,
                 defaultResponseTTlSeconds, inetAddress.getHostAddress(), name));
         return this;
     }

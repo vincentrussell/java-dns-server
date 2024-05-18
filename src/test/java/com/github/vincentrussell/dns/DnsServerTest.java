@@ -82,6 +82,24 @@ public class DnsServerTest {
 
 
     @Test
+    public void multipleResponsesForSameQuery() throws IOException {
+        int port = SocketUtils.findAvailableUdpPort();
+        try (DnsServer server = new DnsServer().setPort(port).startServer()) {
+            server.addManualDnsEntry("www.google.xxx", "192.168.12.1");
+            server.addManualDnsEntry("www.google.xxx", "192.168.12.2");
+            server.addManualDnsEntry("www.google.xxx", "192.168.12.3");
+            server.addManualDnsEntry("www.google.xxx", "192.168.12.4");
+            Record[] records = getRecords(port, new Lookup("www.google.xxx"), false);
+            assertEquals(4, records.length);
+            assertEquals("192.168.12.1", ((ARecord) records[0]).getAddress().getHostAddress());
+            assertEquals("192.168.12.2", ((ARecord) records[1]).getAddress().getHostAddress());
+            assertEquals("192.168.12.3", ((ARecord) records[2]).getAddress().getHostAddress());
+            assertEquals("192.168.12.4", ((ARecord) records[3]).getAddress().getHostAddress());
+        }
+    }
+
+
+    @Test
     public void addManualEntryUseTcpAndUdp() throws IOException {
         int port = SocketUtils.findAvailableUdpPort();
         try (DnsServer server = new DnsServer().setPort(port).startServer()) {
