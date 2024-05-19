@@ -4,6 +4,7 @@ import com.google.common.base.Function;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.slf4j.Logger;
@@ -35,10 +36,10 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -64,7 +65,8 @@ public class DnsServer implements Closeable {
     private volatile boolean running = false;
     private static final int UDP_SIZE = 512;
     private int port = DEFAULT_DNS_SERVER_PORT;
-    private final List<Resolver> externalDnsResolvers = new ArrayList<>();
+    private final List<Resolver> externalDnsResolvers = Collections
+            .synchronizedList(new ArrayList<>());
     private LoadingCache<Name, Record[]> dnsCache;
     private Map<Name, Set<Record>> manualDnsEntries = new ConcurrentHashMap<>();
     private long defaultResponseTTlSeconds = 86400;
@@ -122,6 +124,7 @@ public class DnsServer implements Closeable {
     public DnsServer setBindAddress(final String hostname) throws UnknownHostException {
         return setBindAddress(InetAddress.getByName(hostname));
     }
+
     public DnsServer setBindAddress(final InetAddress bindAddress) {
         this.bindAddress = bindAddress;
         return this;
@@ -169,12 +172,18 @@ public class DnsServer implements Closeable {
         LOGGER.info("starting tcp server on port {}", port);
         return this;
     }
+
     public Map<Name, Set<Record>> getManualDnsEntries() {
         return Collections.unmodifiableMap(manualDnsEntries);
     }
+
     public Map<Name, Set<Record>> getCachedDnsEntries() {
         return Collections.unmodifiableMap(Maps.transformValues(dnsCache.asMap(),
-                (Function<Record[], Set<Record>>) records -> Sets.newHashSet(records)));
+                (Function<Record[], Set<Record>>) records -> {
+                    LinkedHashSet<Record> objects = Sets.newLinkedHashSet();
+                    objects.addAll(Lists.newArrayList(records));
+                    return objects;
+                }));
     }
 
     public Record[] performDnsLookupInRemoteDnsServers(final Name name) {
@@ -322,7 +331,7 @@ public class DnsServer implements Closeable {
                                        final InetAddress inetAddress) throws IOException {
         LOGGER.info("add manual dns entry name={}, ip={}", name, inetAddress);
         manualDnsEntries.computeIfAbsent(name, name1 ->
-                new TreeSet<>()).add(Record.fromString(name, Type.A, DClass.IN,
+                new LinkedHashSet<>()).add(Record.fromString(name, Type.A, DClass.IN,
                 defaultResponseTTlSeconds, inetAddress.getHostAddress(), name));
         return this;
     }
@@ -334,9 +343,11 @@ public class DnsServer implements Closeable {
     private Name toName(final String hostname) throws TextParseException {
         return Name.fromString(hostname.endsWith(".") ? hostname : hostname + ".");
     }
+
     public Set<Record> removeManualDnsEntry(final String hostname) throws TextParseException {
         return removeManualDnsEntry(toName(hostname));
     }
+
     public void clearManualDnsEntries() {
         LOGGER.info("clear all manual dns entries");
         manualDnsEntries.clear();
