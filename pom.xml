@@ -10,7 +10,7 @@
   <name>java-dns-server</name>
   <description>java-dns-server is a UDP DNS server written in java where you can input entries that should be
     returned.</description>
-  <url>https://github.com/vincentrussell/json-data-generator</url>
+  <url>https://github.com/vincentrussell/java-dns-server</url>
 
   <distributionManagement>
     <repository>
